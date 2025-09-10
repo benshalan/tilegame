@@ -1,11 +1,14 @@
 # things to do
 
-Rotating smooth camera
-Grid view
-Player model
+- (X) Rotating smooth camera
+- Grid view
+- Player model
+- entity rotation
 
-Player equipment
 User Interface
+items
+Boss
+grid logic
 
 ## Timing Movement
 
