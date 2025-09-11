@@ -13,6 +13,8 @@ use bevy_framepace::*;
 //use grid::*;
 use iyes_perf_ui::prelude::*;
 
+use std::collections::VecDeque; //Stack?
+
 //globals
 static PI: f32 = 3.14159265;
 static PI_HALF: f32 = 1.57079632; //represent radian ops as fp multiplication instead of division 
@@ -38,9 +40,9 @@ fn main() {
         //.insert_resource(ClearColor(Color::rgb(0.9, 0.3, 0.6)))
         .insert_resource(ClearColor(Color::BLACK))
         //Update functions
-        .add_systems(Update, move_player)
-        .add_systems(Update, turn_player)
-        .add_systems(Update, keyboard_input)
+        .add_systems(Update, move_player.run_if(any_with_component::<Moving>))
+        .add_systems(Update, turn_player.run_if(any_with_component::<Rotating>))
+        .add_systems(Update, keyboard_input.run_if(has_arrow_input))
         .run();
 }
 
@@ -49,6 +51,9 @@ struct Moving {
     distance: f32,
     direction: Direction,
 }
+
+#[derive(Component)]
+struct ProcessingInput;
 
 //#[derive(Component)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
@@ -70,6 +75,13 @@ struct Player {
     direction: f32,
 }
 
+fn has_arrow_input(keys: Res<ButtonInput<KeyCode>>) -> bool {
+    keys.pressed(KeyCode::ArrowLeft)
+        || keys.pressed(KeyCode::ArrowRight)
+        || keys.pressed(KeyCode::ArrowUp)
+        || keys.pressed(KeyCode::ArrowDown)
+}
+
 //Query<(Entity, &mut Transform), With<Moving>>,
 fn keyboard_input(
     keys: Res<ButtonInput<KeyCode>>,
@@ -78,6 +90,8 @@ fn keyboard_input(
 ) {
     for (entity, mut player) in &mut query {
         //player
+        //
+        info!("processing input");
         let mut arrow_pressed: Option<Direction> = None;
         if keys.pressed(KeyCode::ArrowLeft) {
             arrow_pressed = Some(Direction::Left);
@@ -94,6 +108,7 @@ fn keyboard_input(
 
         if let Some(dir) = arrow_pressed {
             let dir_rad = (dir as i32 as f32) * PI_HALF;
+            info!("set dir {:?}", dir_rad);
 
             commands.entity(entity).insert(Moving {
                 direction: dir,
@@ -169,7 +184,7 @@ fn move_player(
 
         //speed indirectly represented by deltatime. doubling deltatime moves twice as fast
         //let mut deltatime = time.delta_secs();
-        let tick_rate = time.delta_secs() / 0.4; //0.8 updates per second
+        let tick_rate = time.delta_secs() / 0.6; //0.8 updates per second
 
         //calculate translation
         let translate_axis: &mut f32;
@@ -207,18 +222,27 @@ fn move_player(
 fn turn_player(
     time: Res<Time>,
     mut commands: Commands,
-    mut query: Query<(Entity, &mut Player, &mut Transform, &mut Rotating)>,
+    mut query: Query<(Entity, &mut Player, &mut Transform, &Rotating)>,
 ) {
-    for (entity, mut player, mut transform, mut rotation) in &mut query {
-        commands.entity(entity).remove::<Rotating>();
-        info!("rotated entity!");
-        player.direction = rotation.direction; //after full rotation
+    let rot_speed = 1.5 * PI; // one π radian per second
+    let rot_tick = time.delta_secs() * rot_speed;
 
-        //decide direction
-        transform.rotate_y(PI as f32 / 10.0);
-        let mut ccw_rot = true;
-        if player.direction as i32 + 1 == rotation.direction as i32 {
-            ccw_rot = false;
+    for (entity, mut player, mut transform, rotation) in &mut query {
+        // normalize angle difference into (-π, π]
+        let mut delta = rotation.direction - player.direction;
+        delta = (delta + PI).rem_euclid(2.0 * PI) - PI;
+
+        if delta.abs() <= rot_tick {
+            // finish rotation exactly
+            transform.rotate_y(delta);
+            player.direction = rotation.direction;
+            commands.entity(entity).remove::<Rotating>();
+            info!("Finished rotation to {:?}", rotation.direction);
+        } else {
+            // step towards target
+            let step = rot_tick.copysign(delta); // use delta's sign
+            transform.rotate_y(step);
+            player.direction += step;
         }
     }
 }
