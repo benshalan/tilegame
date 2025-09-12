@@ -1,11 +1,17 @@
+#![allow(unused_mut)]
+#![allow(dead_code)]
+#![allow(unused_imports)]
+#![forbid(unsafe_code)]
+
 use bevy::{
     //color::palettes::css::{ORANGE, ORANGE_RED},
     //ecs::{query, system::entity_command::insert},
+    color::palettes::css::RED,
     prelude::*,
 };
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
 use bevy_inspector_egui::quick::WorldInspectorPlugin;
-//use std::f32::consts::PI;
+use std::f32::consts::*;
 
 //use bevy::input::common_conditions::*;
 use bevy_flycam::prelude::*;
@@ -16,8 +22,6 @@ use iyes_perf_ui::prelude::*;
 use std::collections::VecDeque; //Stack?
 
 //globals
-static PI: f32 = 3.14159265;
-static PI_HALF: f32 = 1.57079632; //represent radian ops as fp multiplication instead of division 
 
 #[bevy_main]
 fn main() {
@@ -107,7 +111,7 @@ fn keyboard_input(
         //should player move
 
         if let Some(dir) = arrow_pressed {
-            let dir_rad = (dir as i32 as f32) * PI_HALF;
+            let dir_rad = (dir as i32 as f32) * FRAC_PI_2;
             info!("set dir {:?}", dir_rad);
 
             commands.entity(entity).insert(Moving {
@@ -143,6 +147,7 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut settings: ResMut<bevy_framepace::FramepaceSettings>, //mut frame_settings: FramepaceSettings,
+    asset_server: Res<AssetServer>,
 ) {
     settings.limiter = Limiter::from_framerate(120.0);
 
@@ -157,19 +162,55 @@ fn setup(
     ));
 
     // cube
+    //commands.spawn((
+    //    Mesh3d(meshes.add(Cuboid::new(1., 1., 1.))),
+    //    MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
+    //    Transform::from_xyz(-7.5, 0.5, 8.5),
+    //     Player {
+    //        direction: FRAC_PI_2,
+    //     },
+    // ));
+
     commands.spawn((
-        Mesh3d(meshes.add(Cuboid::new(1., 1., 1.))),
-        MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
-        Transform::from_xyz(-7.5, 0.5, 8.5),
-        //Moving { distance: 1.0 },
-        //Direction::Up,
-        Player { direction: PI_HALF },
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("player/scene.gltf"))),
+        Player {
+            direction: FRAC_PI_2,
+        },
+        Transform {
+            translation: Vec3::new(-7.5, 0.5, 8.5),
+            rotation: Quat::from_rotation_y(PI),
+            scale: Vec3::new(1.0, 1.0, 1.0),
+        },
     ));
+
     commands.spawn((
         Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))),
         MeshMaterial3d(materials.add(Color::srgb_u8(255, 0, 0))),
         Transform::from_translation(vec3(0.0, 8.0, -8.0)),
     ));
+
+    commands.spawn((
+        PointLight {
+            intensity: 100_000.0,
+            color: RED.into(),
+            shadows_enabled: true,
+            ..default()
+        },
+        Transform::from_xyz(0.0, 8.0, 0.0),
+        children![(
+            Mesh3d(meshes.add(Sphere::new(0.2).mesh().uv(32, 18))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: RED.into(),
+                emissive: LinearRgba::new(20.0, 0.0, 0.0, 0.0),
+                ..default()
+            })),
+        )],
+    ));
+
+    commands.spawn(SceneRoot(
+        asset_server.load(GltfAssetLabel::Scene(0).from_asset("player/scene.gltf")),
+    ));
+
     //boss
 }
 
@@ -184,7 +225,7 @@ fn move_player(
 
         //speed indirectly represented by deltatime. doubling deltatime moves twice as fast
         //let mut deltatime = time.delta_secs();
-        let tick_rate = time.delta_secs() / 0.6; //0.8 updates per second
+        let tick_rate = time.delta_secs() / 0.4; //0.8 updates per second
 
         //calculate translation
         let translate_axis: &mut f32;
