@@ -3,51 +3,25 @@
 #![allow(unused_imports)]
 #![forbid(unsafe_code)]
 
-use bevy::{
-    //color::palettes::css::{ORANGE, ORANGE_RED},
-    //ecs::{query, system::entity_command::insert},
-    color::palettes::css::RED,
-    prelude::*,
-};
+use bevy::{color::palettes::css::RED, prelude::*, scene::SceneInstanceReady};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use bevy_inspector_egui::quick::WorldInspectorPlugin;
-use std::f32::consts::*;
+use bevy_inspector_egui::{DefaultInspectorConfigPlugin, quick::WorldInspectorPlugin};
+use std::{f32::consts::*, time::Duration};
 
-//use bevy::input::common_conditions::*;
 use bevy_flycam::prelude::*;
 use bevy_framepace::*;
-//use grid::*;
+
 use iyes_perf_ui::prelude::*;
 
 use std::collections::VecDeque; //Stack?
 
-//globals
+const PLAYER_GLTF_PATH: &str = "player2/player.glb";
 
-#[bevy_main]
-fn main() {
-    App::new()
-        .add_plugins(DefaultPlugins)
-        .add_systems(Startup, setup)
-        //Egui Inspector
-        .add_plugins(EguiPlugin::default())
-        .add_plugins(WorldInspectorPlugin::new())
-        //Flycam
-        .add_plugins(PlayerPlugin)
-        //FPS and diagnostics
-        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
-        .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
-        .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
-        .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
-        .add_plugins(PerfUiPlugin)
-        .add_plugins(bevy_framepace::FramepacePlugin)
-        //Bg color
-        //.insert_resource(ClearColor(Color::rgb(0.9, 0.3, 0.6)))
-        .insert_resource(ClearColor(Color::BLACK))
-        //Update functions
-        .add_systems(Update, move_player.run_if(any_with_component::<Moving>))
-        .add_systems(Update, turn_player.run_if(any_with_component::<Rotating>))
-        .add_systems(Update, keyboard_input.run_if(has_arrow_input))
-        .run();
+//globals
+#[derive(Resource)]
+struct Animations {
+    graph_handle: Handle<AnimationGraph>,
+    animations: Vec<AnimationNodeIndex>,
 }
 
 #[derive(Component)]
@@ -79,11 +53,64 @@ struct Player {
     direction: f32,
 }
 
+#[bevy_main]
+fn main() {
+    App::new()
+        .add_plugins(DefaultPlugins)
+        .add_systems(Startup, setup)
+        .add_systems(Update, setup_scene_once_loaded)
+        //Egui Inspector
+        .add_plugins(EguiPlugin::default())
+        .add_plugins(WorldInspectorPlugin::new())
+        //.add_plugins(bevy_inspector_egui::DefaultInspectorConfigPlugin)
+        //.add_plugins(DefaultInspectorConfigPlugin)
+        //Flycam
+        .add_plugins(PlayerPlugin)
+        //FPS and diagnostics
+        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
+        .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
+        .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
+        .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
+        .add_plugins(PerfUiPlugin)
+        .add_plugins(bevy_framepace::FramepacePlugin)
+        //Bg color
+        .insert_resource(ClearColor(Color::BLACK))
+        //Update functions
+        .add_systems(Update, move_player.run_if(any_with_component::<Moving>))
+        .add_systems(Update, turn_player.run_if(any_with_component::<Rotating>))
+        .add_systems(Update, keyboard_input.run_if(has_arrow_input))
+        .run();
+}
+
 fn has_arrow_input(keys: Res<ButtonInput<KeyCode>>) -> bool {
     keys.pressed(KeyCode::ArrowLeft)
         || keys.pressed(KeyCode::ArrowRight)
         || keys.pressed(KeyCode::ArrowUp)
         || keys.pressed(KeyCode::ArrowDown)
+}
+
+fn setup_scene_once_loaded(
+    mut commands: Commands,
+    animations: Res<Animations>,
+    mut players: Query<(Entity, &mut AnimationPlayer), Added<AnimationPlayer>>, //this queries the
+                                                                                //animation player entities, not the parents..
+) {
+    for (entity, mut player) in &mut players {
+        info!("new animation starting loop");
+        let mut transitions = AnimationTransitions::new();
+        // Make sure to start the animation via the `AnimationTransitions`
+        // component. The `AnimationTransitions` component wants to manage all
+        // the animations and will get confused if the animations are started
+        // directly via the `AnimationPlayer`.
+        transitions
+            .play(&mut player, animations.animations[0], Duration::ZERO)
+            .repeat();
+
+        commands
+            .entity(entity)
+            .insert(AnimationGraphHandle(animations.graph_handle.clone()))
+            .insert(transitions);
+    }
 }
 
 //Query<(Entity, &mut Transform), With<Moving>>,
@@ -95,7 +122,7 @@ fn keyboard_input(
     for (entity, mut player) in &mut query {
         //player
         //
-        info!("processing input");
+        // info!("processing input");
         let mut arrow_pressed: Option<Direction> = None;
         if keys.pressed(KeyCode::ArrowLeft) {
             arrow_pressed = Some(Direction::Left);
@@ -112,7 +139,7 @@ fn keyboard_input(
 
         if let Some(dir) = arrow_pressed {
             let dir_rad = (dir as i32 as f32) * FRAC_PI_2;
-            info!("set dir {:?}", dir_rad);
+            //info!("set dir {:?}", dir_rad);
 
             commands.entity(entity).insert(Moving {
                 direction: dir,
@@ -124,63 +151,30 @@ fn keyboard_input(
                 commands
                     .entity(entity)
                     .insert(Rotating { direction: dir_rad });
-                //player.direction = dir; //new direction post-rotate
             }
         }
     }
 }
-
-/*fn direction_to_radian(direction: Direction) -> f32 {
-    match direction {
-        Direction::Left => {
-            info!("hi");
-        }
-        Direction::Right = {
-
-        }
-
-    }
-}*/
 
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut settings: ResMut<bevy_framepace::FramepaceSettings>, //mut frame_settings: FramepaceSettings,
-    asset_server: Res<AssetServer>,
+    asset_server: Res<AssetServer>,                          //asset server
+    mut graphs: ResMut<Assets<AnimationGraph>>,              //animation graphs
 ) {
+    //Game settings
     settings.limiter = Limiter::from_framerate(120.0);
 
-    //perf counter
+    //Debug and perf
     commands.spawn(PerfUiDefaultEntries::default());
 
-    // square base
+    // rect base
     commands.spawn((
         Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))), //x,y
         MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 255))),
         Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), //x,
-    ));
-
-    // cube
-    //commands.spawn((
-    //    Mesh3d(meshes.add(Cuboid::new(1., 1., 1.))),
-    //    MeshMaterial3d(materials.add(Color::srgb_u8(124, 144, 255))),
-    //    Transform::from_xyz(-7.5, 0.5, 8.5),
-    //     Player {
-    //        direction: FRAC_PI_2,
-    //     },
-    // ));
-
-    commands.spawn((
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset("player/scene.gltf"))),
-        Player {
-            direction: FRAC_PI_2,
-        },
-        Transform {
-            translation: Vec3::new(-7.5, 0.5, 8.5),
-            rotation: Quat::from_rotation_y(PI),
-            scale: Vec3::new(1.0, 1.0, 1.0),
-        },
     ));
 
     commands.spawn((
@@ -189,14 +183,15 @@ fn setup(
         Transform::from_translation(vec3(0.0, 8.0, -8.0)),
     ));
 
+    //Light
     commands.spawn((
         PointLight {
-            intensity: 100_000.0,
+            intensity: 100.0,
             color: RED.into(),
             shadows_enabled: true,
             ..default()
         },
-        Transform::from_xyz(0.0, 8.0, 0.0),
+        Transform::from_xyz(0.0, 8.0, -5.0),
         children![(
             Mesh3d(meshes.add(Sphere::new(0.2).mesh().uv(32, 18))),
             MeshMaterial3d(materials.add(StandardMaterial {
@@ -207,11 +202,36 @@ fn setup(
         )],
     ));
 
-    commands.spawn(SceneRoot(
-        asset_server.load(GltfAssetLabel::Scene(0).from_asset("player/scene.gltf")),
-    ));
+    let (walk_graph, index) = AnimationGraph::from_clip(
+        //anim graph for the
+        //walk animation
+        asset_server.load(GltfAssetLabel::Animation(0).from_asset(PLAYER_GLTF_PATH)),
+    );
+    // Store the animation graph as an asset.
+    let graph_handle = graphs.add(walk_graph); //handle to locate
 
-    //boss
+    //let walk_animation = AnimationToPlay {
+    //    graph_handle,
+    //    index,
+    //};
+
+    commands.insert_resource(Animations {
+        animations: vec![index],
+        graph_handle,
+    });
+
+    commands.spawn((
+        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PLAYER_GLTF_PATH))),
+        //walk_animation,
+        Player {
+            direction: FRAC_PI_2,
+        },
+        Transform {
+            translation: Vec3::new(-7.5, 0.5, 8.5),
+            rotation: Quat::from_rotation_y(PI),
+            scale: Vec3::new(0.5, 0.5, 0.5),
+        },
+    ));
 }
 
 fn move_player(
@@ -224,7 +244,7 @@ fn move_player(
         //transform.translation.x += time.delta_secs();
 
         //speed indirectly represented by deltatime. doubling deltatime moves twice as fast
-        //let mut deltatime = time.delta_secs();
+
         let tick_rate = time.delta_secs() / 0.4; //0.8 updates per second
 
         //calculate translation
@@ -234,7 +254,6 @@ fn move_player(
             Direction::Left => {
                 translate_axis = &mut transform.translation.x;
                 sign = -1.0;
-                //deltatime = -deltatime;
             }
             Direction::Right => {
                 translate_axis = &mut transform.translation.x;
@@ -242,11 +261,10 @@ fn move_player(
             Direction::Up => {
                 translate_axis = &mut transform.translation.z;
                 sign = -1.0;
-                //deltatime = -deltatime;
             }
             Direction::Down => {
                 translate_axis = &mut transform.translation.z;
-            } // _ => panic!("unrecognized direction!"), //translate_axis = &mut transform.translation.x,
+            }
         }
 
         //perform translation
@@ -265,7 +283,7 @@ fn turn_player(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Player, &mut Transform, &Rotating)>,
 ) {
-    let rot_speed = 1.5 * PI; // one π radian per second
+    let rot_speed = 1.5 * PI; // one pi radian per second
     let rot_tick = time.delta_secs() * rot_speed;
 
     for (entity, mut player, mut transform, rotation) in &mut query {
@@ -278,7 +296,7 @@ fn turn_player(
             transform.rotate_y(delta);
             player.direction = rotation.direction;
             commands.entity(entity).remove::<Rotating>();
-            info!("Finished rotation to {:?}", rotation.direction);
+            //info!("Finished rotation to {:?}", rotation.direction);
         } else {
             // step towards target
             let step = rot_tick.copysign(delta); // use delta's sign

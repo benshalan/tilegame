@@ -18,3 +18,5 @@ Add movement trait, remove it when no longer move
 ## Coordinate units
 
 One movement is 1.0 floating translation difference
+
+use meter as base unit for the coordinate system, meaning 1.0 is 1.0 meters in world equivalents
