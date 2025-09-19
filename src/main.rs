@@ -5,6 +5,7 @@
 
 use bevy::{color::palettes::css::RED, prelude::*, scene::SceneInstanceReady};
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin};
 use bevy_inspector_egui::{DefaultInspectorConfigPlugin, quick::WorldInspectorPlugin};
 use std::{f32::consts::*, time::Duration};
 
@@ -15,43 +16,10 @@ use iyes_perf_ui::prelude::*;
 
 use std::collections::VecDeque; //Stack?
 
-const PLAYER_GLTF_PATH: &str = "player2/player.glb";
+mod components;
+use components::*;
 
-//globals
-#[derive(Resource)]
-struct Animations {
-    graph_handle: Handle<AnimationGraph>,
-    animations: Vec<AnimationNodeIndex>,
-}
-
-#[derive(Component)]
-struct Moving {
-    distance: f32,
-    direction: Direction,
-}
-
-#[derive(Component)]
-struct ProcessingInput;
-
-//#[derive(Component)]
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-enum Direction {
-    //components have directions, but the direction is not a component itself
-    Left = 2,
-    Right = 0,
-    Up = 1,
-    Down = 3,
-}
-
-#[derive(Component)] //radian direction
-struct Rotating {
-    direction: f32,
-}
-
-#[derive(Component)]
-struct Player {
-    direction: f32,
-}
+const PLAYER_GLTF_PATH: &str = "player/player.glb";
 
 #[bevy_main]
 fn main() {
@@ -65,7 +33,7 @@ fn main() {
         //.add_plugins(bevy_inspector_egui::DefaultInspectorConfigPlugin)
         //.add_plugins(DefaultInspectorConfigPlugin)
         //Flycam
-        .add_plugins(PlayerPlugin)
+        .add_plugins(PlayerPlugin) //TODO: add back
         //FPS and diagnostics
         .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
         .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
@@ -73,6 +41,8 @@ fn main() {
         .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
         .add_plugins(PerfUiPlugin)
         .add_plugins(bevy_framepace::FramepacePlugin)
+        //Infinite Grid
+        .add_plugins(InfiniteGridPlugin)
         //Bg color
         .insert_resource(ClearColor(Color::BLACK))
         //Update functions
@@ -177,6 +147,8 @@ fn setup(
         Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), //x,
     ));
 
+    commands.spawn(InfiniteGridBundle::default());
+
     commands.spawn((
         Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))),
         MeshMaterial3d(materials.add(Color::srgb_u8(255, 0, 0))),
@@ -203,8 +175,7 @@ fn setup(
     ));
 
     let (walk_graph, index) = AnimationGraph::from_clip(
-        //anim graph for the
-        //walk animation
+        //anim graph for the walk animation
         asset_server.load(GltfAssetLabel::Animation(0).from_asset(PLAYER_GLTF_PATH)),
     );
     // Store the animation graph as an asset.

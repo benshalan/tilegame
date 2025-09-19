@@ -15,6 +15,9 @@ bevy_framepace = "0.19.1"
 pathfinding = "4.14.0"
 bevy_save = "2.0.1"
 bevy_gltf_animation = "0.2.0"
+bevy_infinite_grid = "0.15.0"
+bevy_third_person_camera = "0.3.0"
+bevy_northstar = "0.3.2"
 
 [profile.dev]
 opt-level = 1
