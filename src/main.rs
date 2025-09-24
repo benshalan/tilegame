@@ -3,48 +3,59 @@
 #![allow(unused_imports)]
 #![forbid(unsafe_code)]
 
-use bevy::{color::palettes::css::RED, prelude::*, scene::SceneInstanceReady};
+use bevy::{
+    color::palettes::css::RED,
+    prelude::*,
+    render::render_resource::{AsBindGroup, ShaderRef},
+    scene::SceneInstanceReady,
+};
+use bevy_ecs_tilemap::prelude::*;
 use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
-use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin};
-use bevy_inspector_egui::{DefaultInspectorConfigPlugin, quick::WorldInspectorPlugin};
-use std::{f32::consts::*, time::Duration};
-
 use bevy_flycam::prelude::*;
 use bevy_framepace::*;
-
+use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin};
+use bevy_inspector_egui::{DefaultInspectorConfigPlugin, quick::WorldInspectorPlugin};
+use bevy_mod_outline::{
+    AsyncSceneInheritOutline, AutoGenerateOutlineNormalsPlugin, OutlinePlugin, OutlineVolume,
+};
 use iyes_perf_ui::prelude::*;
-
 use std::collections::VecDeque; //Stack?
+use std::{f32::consts::*, time::Duration};
 
 mod components;
 use components::*;
 
 const PLAYER_GLTF_PATH: &str = "player/player.glb";
-
+// const SHADER_ASSET_PATH: &str = "shaders/outline_mesh.wgsl";
+const SHADER_ASSET_PATH: &str = "shaders/animate_shader.wgsl";
 #[bevy_main]
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        //.add_plugins(DefaultPlugins)
         .add_systems(Startup, setup)
-        .add_systems(Update, setup_scene_once_loaded)
-        //Egui Inspector
-        .add_plugins(EguiPlugin::default())
+        .add_plugins((
+            DefaultPlugins,
+            PlayerPlugin,
+            EguiPlugin::default(),
+            //WorldInspectorPlugin::new(),
+            bevy::diagnostic::FrameTimeDiagnosticsPlugin::default(),
+            bevy::diagnostic::EntityCountDiagnosticsPlugin,
+            bevy::diagnostic::SystemInformationDiagnosticsPlugin,
+            bevy::render::diagnostic::RenderDiagnosticsPlugin,
+            PerfUiPlugin,                    //PerfUI
+            bevy_framepace::FramepacePlugin, //FPS limiter
+            InfiniteGridPlugin,
+            OutlinePlugin, //Mesh outlining
+            AutoGenerateOutlineNormalsPlugin::default(),
+            MaterialPlugin::<CustomMaterial>::default(),
+            MeshPickingPlugin,
+            TilemapPlugin,
+        ))
         .add_plugins(WorldInspectorPlugin::new())
-        //.add_plugins(bevy_inspector_egui::DefaultInspectorConfigPlugin)
-        //.add_plugins(DefaultInspectorConfigPlugin)
-        //Flycam
-        .add_plugins(PlayerPlugin) //TODO: add back
-        //FPS and diagnostics
-        .add_plugins(bevy::diagnostic::FrameTimeDiagnosticsPlugin::default())
-        .add_plugins(bevy::diagnostic::EntityCountDiagnosticsPlugin)
-        .add_plugins(bevy::diagnostic::SystemInformationDiagnosticsPlugin)
-        .add_plugins(bevy::render::diagnostic::RenderDiagnosticsPlugin)
-        .add_plugins(PerfUiPlugin)
-        .add_plugins(bevy_framepace::FramepacePlugin)
-        //Infinite Grid
-        .add_plugins(InfiniteGridPlugin)
+        //.add_plugins(ImagePlugin)
         //Bg color
         .insert_resource(ClearColor(Color::BLACK))
+        .add_systems(Update, setup_scene_once_loaded)
         //Update functions
         .add_systems(Update, move_player.run_if(any_with_component::<Moving>))
         .add_systems(Update, turn_player.run_if(any_with_component::<Rotating>))
@@ -126,10 +137,19 @@ fn keyboard_input(
     }
 }
 
+#[derive(Asset, TypePath, AsBindGroup, Debug, Clone)]
+struct CustomMaterial {}
+
+impl Material for CustomMaterial {
+    fn fragment_shader() -> ShaderRef {
+        SHADER_ASSET_PATH.into()
+    }
+}
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut materials: ResMut<Assets<CustomMaterial>>,
     mut settings: ResMut<bevy_framepace::FramepaceSettings>, //mut frame_settings: FramepaceSettings,
     asset_server: Res<AssetServer>,                          //asset server
     mut graphs: ResMut<Assets<AnimationGraph>>,              //animation graphs
@@ -140,39 +160,93 @@ fn setup(
     //Debug and perf
     commands.spawn(PerfUiDefaultEntries::default());
 
+    //commands.spawn(Camera2d::default());
+
+    //tilemap
+    let map_size = TilemapSize { x: 8, y: 8 };
+    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
+    let grid_size: TilemapGridSize = tile_size.into();
+    let map_type = TilemapType::default();
+
+    let tilemap_entity = commands.spawn_empty().id();
+    let mut tile_storage = TileStorage::empty(map_size);
+    let texture_handle: Handle<Image> = asset_server.load("tiles.png");
+
+    for x in 0..map_size.x {
+        for y in 0..map_size.y {
+            let tile_pos = TilePos { x, y };
+            let tile_entity = commands
+                .spawn(TileBundle {
+                    position: tile_pos,
+                    tilemap_id: TilemapId(tilemap_entity),
+                    texture_index: TileTextureIndex(0),
+                    ..Default::default()
+                })
+                .id();
+            tile_storage.set(&tile_pos, tile_entity);
+        }
+    }
+
+    commands.entity(tilemap_entity).insert(TilemapBundle {
+        grid_size,
+        map_type,
+        size: map_size,
+        storage: tile_storage,
+        texture: TilemapTexture::Single(texture_handle),
+        tile_size,
+        anchor: TilemapAnchor::Center,
+        visibility: Visibility::Visible,
+
+        ..Default::default()
+    });
+
+    //info!("{:?}", &tile_storage.clone());
     // rect base
+    // commands.spawn((
+    //     Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))), //x,y
+    //     MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 255))),
+    //     Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), //x,
+    // ));
+
+    //    cube
     commands.spawn((
-        Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))), //x,y
-        MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 255))),
-        Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), //x,
+        Mesh3d(meshes.add(Cuboid::default())),
+        MeshMaterial3d(materials.add(CustomMaterial {})),
+        Transform::from_xyz(0.0, 0.5, 0.0),
+        OutlineVolume {
+            visible: true,
+            width: 4.0,
+            colour: Color::srgb(1.0, 0.5, 0.0),
+        },
     ));
 
     commands.spawn(InfiniteGridBundle::default());
 
-    commands.spawn((
-        Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))),
-        MeshMaterial3d(materials.add(Color::srgb_u8(255, 0, 0))),
-        Transform::from_translation(vec3(0.0, 8.0, -8.0)),
-    ));
+    //commands.spawn((
+    //    Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))),
+    //    MeshMaterial3d(materials.add(CustomMaterial {})),
+    //    Transform::from_translation(vec3(0.0, 8.0, -8.0)),
+    //));
+    //
 
     //Light
-    commands.spawn((
-        PointLight {
-            intensity: 100.0,
-            color: RED.into(),
-            shadows_enabled: true,
-            ..default()
-        },
-        Transform::from_xyz(0.0, 8.0, -5.0),
-        children![(
-            Mesh3d(meshes.add(Sphere::new(0.2).mesh().uv(32, 18))),
-            MeshMaterial3d(materials.add(StandardMaterial {
-                base_color: RED.into(),
-                emissive: LinearRgba::new(20.0, 0.0, 0.0, 0.0),
-                ..default()
-            })),
-        )],
-    ));
+    // commands.spawn((
+    //     PointLight {
+    //         intensity: 100.0,
+    //         color: RED.into(),
+    //         shadows_enabled: true,
+    //         ..default()
+    //     },
+    //     Transform::from_xyz(0.0, 8.0, -5.0),
+    //     children![(
+    //         Mesh3d(meshes.add(Sphere::new(0.2).mesh().uv(32, 18))),
+    //         MeshMaterial3d(materials.add(StandardMaterial {
+    //             base_color: RED.into(),
+    //             emissive: LinearRgba::new(20.0, 0.0, 0.0, 0.0),
+    //             ..default()
+    //         })),
+    //     )],
+    // ));
 
     let (walk_graph, index) = AnimationGraph::from_clip(
         //anim graph for the walk animation
@@ -187,22 +261,40 @@ fn setup(
     //};
 
     commands.insert_resource(Animations {
+        //walk animation is resource
         animations: vec![index],
         graph_handle,
     });
 
-    commands.spawn((
-        SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PLAYER_GLTF_PATH))),
-        //walk_animation,
-        Player {
-            direction: FRAC_PI_2,
-        },
-        Transform {
-            translation: Vec3::new(-7.5, 0.5, 8.5),
-            rotation: Quat::from_rotation_y(PI),
-            scale: Vec3::new(0.5, 0.5, 0.5),
-        },
-    ));
+    commands
+        .spawn((
+            SceneRoot(asset_server.load(GltfAssetLabel::Scene(0).from_asset(PLAYER_GLTF_PATH))),
+            Player {
+                direction: FRAC_PI_2,
+            },
+            Transform {
+                translation: Vec3::new(-7.5, 0.5, 8.5),
+                rotation: Quat::from_rotation_y(PI),
+                scale: Vec3::new(0.5, 0.5, 0.5),
+            },
+        ))
+        .observe(
+            |mut trigger: Trigger<Pointer<Click>>, mut commands: Commands| {
+                let entity = trigger.target();
+                info!("i was clicked!");
+
+                commands.entity(entity).insert((
+                    OutlineVolume {
+                        visible: true,
+                        width: 4.0,
+                        colour: Color::srgb(1.0, 0.5, 0.0),
+                    },
+                    AsyncSceneInheritOutline::default(),
+                ));
+
+                trigger.propagate(false);
+            },
+        );
 }
 
 fn move_player(
@@ -258,7 +350,6 @@ fn turn_player(
     let rot_tick = time.delta_secs() * rot_speed;
 
     for (entity, mut player, mut transform, rotation) in &mut query {
-        // normalize angle difference into (-π, π]
         let mut delta = rotation.direction - player.direction;
         delta = (delta + PI).rem_euclid(2.0 * PI) - PI;
 
@@ -267,7 +358,6 @@ fn turn_player(
             transform.rotate_y(delta);
             player.direction = rotation.direction;
             commands.entity(entity).remove::<Rotating>();
-            //info!("Finished rotation to {:?}", rotation.direction);
         } else {
             // step towards target
             let step = rot_tick.copysign(delta); // use delta's sign
