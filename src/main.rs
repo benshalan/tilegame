@@ -1,32 +1,28 @@
-#![allow(unused_mut)]
-#![allow(dead_code)]
-#![allow(unused_imports)]
-#![forbid(unsafe_code)]
+// #![allow(unused_mut)]
+// #![allow(dead_code)]
+// #![allow(unused_imports)]
+// #![forbid(unsafe_code)]
 
 use bevy::{
-    color::palettes::css::RED,
     prelude::*,
     render::render_resource::{AsBindGroup, ShaderRef},
-    scene::SceneInstanceReady,
 };
-use bevy_ecs_tilemap::prelude::*;
-use bevy_egui::{EguiContexts, EguiPlugin, EguiPrimaryContextPass, egui};
+
+use bevy_egui::EguiPlugin;
 use bevy_flycam::prelude::*;
 use bevy_framepace::*;
 use bevy_infinite_grid::{InfiniteGridBundle, InfiniteGridPlugin};
-use bevy_inspector_egui::{DefaultInspectorConfigPlugin, quick::WorldInspectorPlugin};
+use bevy_inspector_egui::quick::WorldInspectorPlugin;
 use bevy_mod_outline::{
     AsyncSceneInheritOutline, AutoGenerateOutlineNormalsPlugin, OutlinePlugin, OutlineVolume,
 };
 use iyes_perf_ui::prelude::*;
-use std::collections::VecDeque; //Stack?
 use std::{f32::consts::*, time::Duration};
 
 mod components;
 use components::*;
 
 const PLAYER_GLTF_PATH: &str = "player/player.glb";
-// const SHADER_ASSET_PATH: &str = "shaders/outline_mesh.wgsl";
 const SHADER_ASSET_PATH: &str = "shaders/animate_shader.wgsl";
 #[bevy_main]
 fn main() {
@@ -35,21 +31,19 @@ fn main() {
         .add_systems(Startup, setup)
         .add_plugins((
             DefaultPlugins,
-            PlayerPlugin,
+            PlayerPlugin, //FlyCam
             EguiPlugin::default(),
-            //WorldInspectorPlugin::new(),
             bevy::diagnostic::FrameTimeDiagnosticsPlugin::default(),
             bevy::diagnostic::EntityCountDiagnosticsPlugin,
             bevy::diagnostic::SystemInformationDiagnosticsPlugin,
             bevy::render::diagnostic::RenderDiagnosticsPlugin,
-            PerfUiPlugin,                    //PerfUI
+            PerfUiPlugin,
             bevy_framepace::FramepacePlugin, //FPS limiter
             InfiniteGridPlugin,
             OutlinePlugin, //Mesh outlining
             AutoGenerateOutlineNormalsPlugin::default(),
             MaterialPlugin::<CustomMaterial>::default(),
             MeshPickingPlugin,
-            TilemapPlugin,
         ))
         .add_plugins(WorldInspectorPlugin::new())
         //.add_plugins(ImagePlugin)
@@ -79,10 +73,6 @@ fn setup_scene_once_loaded(
     for (entity, mut player) in &mut players {
         info!("new animation starting loop");
         let mut transitions = AnimationTransitions::new();
-        // Make sure to start the animation via the `AnimationTransitions`
-        // component. The `AnimationTransitions` component wants to manage all
-        // the animations and will get confused if the animations are started
-        // directly via the `AnimationPlayer`.
         transitions
             .play(&mut player, animations.animations[0], Duration::ZERO)
             .repeat();
@@ -97,10 +87,10 @@ fn setup_scene_once_loaded(
 //Query<(Entity, &mut Transform), With<Moving>>,
 fn keyboard_input(
     keys: Res<ButtonInput<KeyCode>>,
-    mut query: Query<(Entity, &mut Player), Without<Moving>>, //TODO: not precise
+    mut query: Query<(Entity, &Player), Without<Moving>>, //TODO: not precise
     mut commands: Commands,
 ) {
-    for (entity, mut player) in &mut query {
+    for (entity, player) in &mut query {
         //player
         //
         // info!("processing input");
@@ -162,52 +152,6 @@ fn setup(
 
     //commands.spawn(Camera2d::default());
 
-    //tilemap
-    let map_size = TilemapSize { x: 8, y: 8 };
-    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
-    let grid_size: TilemapGridSize = tile_size.into();
-    let map_type = TilemapType::default();
-
-    let tilemap_entity = commands.spawn_empty().id();
-    let mut tile_storage = TileStorage::empty(map_size);
-    let texture_handle: Handle<Image> = asset_server.load("tiles.png");
-
-    for x in 0..map_size.x {
-        for y in 0..map_size.y {
-            let tile_pos = TilePos { x, y };
-            let tile_entity = commands
-                .spawn(TileBundle {
-                    position: tile_pos,
-                    tilemap_id: TilemapId(tilemap_entity),
-                    texture_index: TileTextureIndex(0),
-                    ..Default::default()
-                })
-                .id();
-            tile_storage.set(&tile_pos, tile_entity);
-        }
-    }
-
-    commands.entity(tilemap_entity).insert(TilemapBundle {
-        grid_size,
-        map_type,
-        size: map_size,
-        storage: tile_storage,
-        texture: TilemapTexture::Single(texture_handle),
-        tile_size,
-        anchor: TilemapAnchor::Center,
-        visibility: Visibility::Visible,
-
-        ..Default::default()
-    });
-
-    //info!("{:?}", &tile_storage.clone());
-    // rect base
-    // commands.spawn((
-    //     Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))), //x,y
-    //     MeshMaterial3d(materials.add(Color::srgb_u8(255, 255, 255))),
-    //     Transform::from_rotation(Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)), //x,
-    // ));
-
     //    cube
     commands.spawn((
         Mesh3d(meshes.add(Cuboid::default())),
@@ -222,43 +166,12 @@ fn setup(
 
     commands.spawn(InfiniteGridBundle::default());
 
-    //commands.spawn((
-    //    Mesh3d(meshes.add(Rectangle::new(16.0, 16.0))),
-    //    MeshMaterial3d(materials.add(CustomMaterial {})),
-    //    Transform::from_translation(vec3(0.0, 8.0, -8.0)),
-    //));
-    //
-
-    //Light
-    // commands.spawn((
-    //     PointLight {
-    //         intensity: 100.0,
-    //         color: RED.into(),
-    //         shadows_enabled: true,
-    //         ..default()
-    //     },
-    //     Transform::from_xyz(0.0, 8.0, -5.0),
-    //     children![(
-    //         Mesh3d(meshes.add(Sphere::new(0.2).mesh().uv(32, 18))),
-    //         MeshMaterial3d(materials.add(StandardMaterial {
-    //             base_color: RED.into(),
-    //             emissive: LinearRgba::new(20.0, 0.0, 0.0, 0.0),
-    //             ..default()
-    //         })),
-    //     )],
-    // ));
-
     let (walk_graph, index) = AnimationGraph::from_clip(
         //anim graph for the walk animation
         asset_server.load(GltfAssetLabel::Animation(0).from_asset(PLAYER_GLTF_PATH)),
     );
     // Store the animation graph as an asset.
     let graph_handle = graphs.add(walk_graph); //handle to locate
-
-    //let walk_animation = AnimationToPlay {
-    //    graph_handle,
-    //    index,
-    //};
 
     commands.insert_resource(Animations {
         //walk animation is resource
@@ -304,10 +217,6 @@ fn move_player(
     mut query: Query<(Entity, &mut Transform, &mut Moving)>,
 ) {
     for (entity, mut transform, mut moving) in &mut query {
-        //transform.translation.x += time.delta_secs();
-
-        //speed indirectly represented by deltatime. doubling deltatime moves twice as fast
-
         let tick_rate = time.delta_secs() / 0.4; //0.8 updates per second
 
         //calculate translation
@@ -346,7 +255,7 @@ fn turn_player(
     mut commands: Commands,
     mut query: Query<(Entity, &mut Player, &mut Transform, &Rotating)>,
 ) {
-    let rot_speed = 1.5 * PI; // one pi radian per second
+    let rot_speed = 1.5 * PI;
     let rot_tick = time.delta_secs() * rot_speed;
 
     for (entity, mut player, mut transform, rotation) in &mut query {
@@ -359,7 +268,7 @@ fn turn_player(
             player.direction = rotation.direction;
             commands.entity(entity).remove::<Rotating>();
         } else {
-            // step towards target
+            // step
             let step = rot_tick.copysign(delta); // use delta's sign
             transform.rotate_y(step);
             player.direction += step;

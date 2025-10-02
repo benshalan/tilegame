@@ -13,8 +13,8 @@ pub struct Moving {
     pub direction: Direction,
 }
 
-#[derive(Component)]
-pub struct ProcessingInput;
+// #[derive(Component)]
+// pub struct ProcessingInput;
 
 //#[derive(Component)]
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
